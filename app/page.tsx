@@ -816,6 +816,10 @@ export default function Home() {
         >
           GitHub
         </a>
+        <br />
+        <a href="/privacy" style={{ color: "var(--primary)" }}>Privacy Policy</a> &middot;{" "}
+        <a href="/terms" style={{ color: "var(--primary)" }}>Terms of Service</a> &middot;{" "}
+        <a href="/about" style={{ color: "var(--primary)" }}>About</a>
       </footer>
 
       {/* Toast */}
