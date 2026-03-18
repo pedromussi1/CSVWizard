@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 
 // --- CSV Parser ---
 function parseCSV(text: string, delimiter = ","): string[][] {
@@ -50,7 +50,6 @@ function parseCSV(text: string, delimiter = ","): string[][] {
     rows.push(row);
   }
 
-  // Remove trailing empty rows
   while (rows.length > 0 && rows[rows.length - 1].every((c) => c === "")) {
     rows.pop();
   }
@@ -134,22 +133,25 @@ function toXML(headers: string[], data: string[][]): string {
   return xml;
 }
 
-// --- Sort type detection ---
 type SortDir = "asc" | "desc" | null;
 
 function isNumeric(val: string): boolean {
   return val !== "" && !isNaN(Number(val));
 }
 
+// --- Virtualization constants ---
+const ROW_HEIGHT = 32;
+const OVERSCAN = 10;
+
 export default function Home() {
-  const [rawText, setRawText] = useState("");
+  const [inputText, setInputText] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [data, setData] = useState<string[][]>([]);
   const [hasHeader, setHasHeader] = useState(true);
-  const [delimiter, setDelimiter] = useState(",");
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>(null);
   const [filterText, setFilterText] = useState("");
+  const [debouncedFilter, setDebouncedFilter] = useState("");
   const [editCell, setEditCell] = useState<{
     row: number;
     col: number;
@@ -158,8 +160,12 @@ export default function Home() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [toast, setToast] = useState<string | null>(null);
   const [tableName, setTableName] = useState("table_name");
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(500);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const filterTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Theme
   useEffect(() => {
@@ -174,22 +180,40 @@ export default function Home() {
     localStorage.setItem("csvwizard-theme", theme);
   }, [theme]);
 
-  // Focus edit input
   useEffect(() => {
     if (editCell && editInputRef.current) editInputRef.current.focus();
   }, [editCell]);
+
+  // Debounce filter
+  useEffect(() => {
+    clearTimeout(filterTimerRef.current);
+    filterTimerRef.current = setTimeout(() => {
+      setDebouncedFilter(filterText);
+    }, 200);
+    return () => clearTimeout(filterTimerRef.current);
+  }, [filterText]);
+
+  // Measure viewport
+  useEffect(() => {
+    const container = tableContainerRef.current;
+    if (!container) return;
+    const obs = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setViewportHeight(entry.contentRect.height);
+      }
+    });
+    obs.observe(container);
+    return () => obs.disconnect();
+  }, [headers.length]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2200);
   }, []);
 
-  // Parse input
   const processData = useCallback(
     (text: string) => {
-      setRawText(text);
       const det = detectDelimiter(text);
-      setDelimiter(det);
       const rows = parseCSV(text, det);
       if (rows.length === 0) {
         setHeaders([]);
@@ -204,27 +228,25 @@ export default function Home() {
         setHeaders(Array.from({ length: cols }, (_, i) => `Column ${i + 1}`));
         setData(rows);
       }
+      setInputText("");
       setSortCol(null);
       setSortDir(null);
       setFilterText("");
+      setDebouncedFilter("");
+      setScrollTop(0);
     },
     [hasHeader]
   );
 
-  // File upload
   const handleFile = useCallback(
     (file: File) => {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result as string;
-        processData(text);
-      };
+      reader.onload = (e) => processData(e.target?.result as string);
       reader.readAsText(file);
     },
     [processData]
   );
 
-  // Drag and drop
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
@@ -234,93 +256,123 @@ export default function Home() {
     [handleFile]
   );
 
-  // Sort
-  const handleSort = (colIndex: number) => {
-    if (sortCol === colIndex) {
-      if (sortDir === "asc") setSortDir("desc");
-      else if (sortDir === "desc") {
-        setSortCol(null);
-        setSortDir(null);
-        return;
+  const handleSort = useCallback((colIndex: number) => {
+    setSortCol((prev) => {
+      if (prev === colIndex) {
+        setSortDir((d) => {
+          if (d === "asc") return "desc";
+          setSortCol(null);
+          return null;
+        });
+        return prev;
       }
-    } else {
-      setSortCol(colIndex);
       setSortDir("asc");
-    }
-  };
-
-  // Edit cell
-  const startEdit = (rowIdx: number, colIdx: number) => {
-    setEditCell({ row: rowIdx, col: colIdx });
-    setEditValue(data[rowIdx]?.[colIdx] || "");
-  };
-
-  const commitEdit = () => {
-    if (!editCell) return;
-    const newData = data.map((r) => [...r]);
-    newData[editCell.row][editCell.col] = editValue;
-    setData(newData);
-    setEditCell(null);
-  };
-
-  // Delete row
-  const deleteRow = (rowIdx: number) => {
-    setData(data.filter((_, i) => i !== rowIdx));
-  };
-
-  // Add row
-  const addRow = () => {
-    setData([...data, Array(headers.length).fill("")]);
-  };
-
-  // Processed data (sorted + filtered)
-  let displayData = [...data];
-
-  if (filterText) {
-    const lower = filterText.toLowerCase();
-    displayData = displayData.filter((row) =>
-      row.some((cell) => cell.toLowerCase().includes(lower))
-    );
-  }
-
-  if (sortCol !== null && sortDir) {
-    const col = sortCol;
-    const allNumeric = displayData.every((row) => isNumeric(row[col] || ""));
-    displayData.sort((a, b) => {
-      const va = a[col] || "";
-      const vb = b[col] || "";
-      let cmp: number;
-      if (allNumeric) cmp = Number(va) - Number(vb);
-      else cmp = va.localeCompare(vb);
-      return sortDir === "desc" ? -cmp : cmp;
+      return colIndex;
     });
-  }
+  }, []);
 
-  // Export
-  const download = (content: string, filename: string, mime: string) => {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast(`Downloaded ${filename}`);
-  };
+  const startEdit = useCallback(
+    (rowIdx: number, colIdx: number) => {
+      setEditCell({ row: rowIdx, col: colIdx });
+      setEditValue(data[rowIdx]?.[colIdx] || "");
+    },
+    [data]
+  );
 
-  const copyToClipboard = async (text: string) => {
-    await navigator.clipboard.writeText(text);
-    showToast("Copied to clipboard");
-  };
+  const commitEdit = useCallback(() => {
+    if (!editCell) return;
+    setData((prev) => {
+      const newData = [...prev];
+      newData[editCell.row] = [...newData[editCell.row]];
+      newData[editCell.row][editCell.col] = editValue;
+      return newData;
+    });
+    setEditCell(null);
+  }, [editCell, editValue]);
+
+  const deleteRow = useCallback((rowIdx: number) => {
+    setData((prev) => prev.filter((_, i) => i !== rowIdx));
+  }, []);
+
+  const addRow = useCallback(() => {
+    setData((prev) => [...prev, Array(headers.length).fill("")]);
+  }, [headers.length]);
+
+  // Memoized display data: [{originalIndex, row}]
+  const displayData = useMemo(() => {
+    let indexed = data.map((row, i) => ({ idx: i, row }));
+
+    if (debouncedFilter) {
+      const lower = debouncedFilter.toLowerCase();
+      indexed = indexed.filter(({ row }) =>
+        row.some((cell) => cell.toLowerCase().includes(lower))
+      );
+    }
+
+    if (sortCol !== null && sortDir) {
+      const col = sortCol;
+      const allNumeric = indexed.every(({ row }) =>
+        isNumeric(row[col] || "")
+      );
+      indexed.sort((a, b) => {
+        const va = a.row[col] || "";
+        const vb = b.row[col] || "";
+        let cmp: number;
+        if (allNumeric) cmp = Number(va) - Number(vb);
+        else cmp = va.localeCompare(vb);
+        return sortDir === "desc" ? -cmp : cmp;
+      });
+    }
+
+    return indexed;
+  }, [data, debouncedFilter, sortCol, sortDir]);
+
+  // Virtual scrolling
+  const totalHeight = displayData.length * ROW_HEIGHT;
+  const startRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const visibleCount =
+    Math.ceil(viewportHeight / ROW_HEIGHT) + OVERSCAN * 2;
+  const endRow = Math.min(displayData.length, startRow + visibleCount);
+  const visibleRows = displayData.slice(startRow, endRow);
+  const offsetY = startRow * ROW_HEIGHT;
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop);
+  }, []);
+
+  const download = useCallback(
+    (content: string, filename: string, mime: string) => {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(`Downloaded ${filename}`);
+    },
+    [showToast]
+  );
+
+  const copyToClipboard = useCallback(
+    async (text: string) => {
+      await navigator.clipboard.writeText(text);
+      showToast("Copied to clipboard");
+    },
+    [showToast]
+  );
 
   const hasData = headers.length > 0 && data.length > 0;
 
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
-      <header className="border-b flex items-center justify-between px-6 py-4" style={{ borderColor: "var(--border)" }}>
+      <header
+        className="border-b flex items-center justify-between px-6 py-4"
+        style={{ borderColor: "var(--border)" }}
+      >
         <div>
           <h1
             className="text-2xl font-bold font-[family-name:var(--font-geist-mono)]"
@@ -335,7 +387,10 @@ export default function Home() {
         <button
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           className="p-2 rounded-lg border transition-colors hover:opacity-80"
-          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+          style={{
+            borderColor: "var(--border)",
+            background: "var(--surface)",
+          }}
           title="Toggle theme"
         >
           {theme === "dark" ? (
@@ -398,14 +453,17 @@ export default function Home() {
                     color: "var(--foreground)",
                   }}
                   placeholder="Or paste CSV/TSV data here..."
-                  value={rawText}
-                  onChange={(e) => setRawText(e.target.value)}
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.ctrlKey && e.key === "Enter") processData(rawText);
+                    if (e.ctrlKey && e.key === "Enter") processData(inputText);
                   }}
                 />
                 <div className="flex items-center gap-4 mt-2">
-                  <label className="flex items-center gap-2 text-sm" style={{ color: "var(--muted)" }}>
+                  <label
+                    className="flex items-center gap-2 text-sm"
+                    style={{ color: "var(--muted)" }}
+                  >
                     <input
                       type="checkbox"
                       checked={hasHeader}
@@ -415,7 +473,7 @@ export default function Home() {
                     First row is header
                   </label>
                   <button
-                    onClick={() => processData(rawText)}
+                    onClick={() => processData(inputText)}
                     className="ml-auto px-4 py-1.5 rounded-lg text-white text-sm font-medium"
                     style={{ background: "var(--primary)" }}
                   >
@@ -469,7 +527,7 @@ export default function Home() {
               onClick={() => {
                 setHeaders([]);
                 setData([]);
-                setRawText("");
+                setInputText("");
               }}
               className="px-3 py-1.5 rounded-lg border text-sm font-medium text-red-500 transition-colors hover:opacity-80"
               style={{ borderColor: "var(--border)" }}
@@ -479,11 +537,16 @@ export default function Home() {
           </div>
         )}
 
-        {/* Table */}
+        {/* Virtualized Table */}
         {hasData && (
           <div
-            className="rounded-xl border overflow-auto max-h-[60vh]"
-            style={{ borderColor: "var(--border)" }}
+            ref={tableContainerRef}
+            className="rounded-xl border overflow-auto"
+            style={{
+              borderColor: "var(--border)",
+              height: "min(60vh, 600px)",
+            }}
+            onScroll={handleScroll}
           >
             <table className="w-full text-sm border-collapse">
               <thead>
@@ -529,72 +592,86 @@ export default function Home() {
                 </tr>
               </thead>
               <tbody>
-                {displayData.map((row, ri) => {
-                  const actualIdx = data.indexOf(row);
-                  return (
-                    <tr
-                      key={actualIdx}
-                      className="transition-colors"
-                      style={{
-                        borderBottom: "1px solid var(--border)",
-                      }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.background = "var(--surface)")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.background = "transparent")
-                      }
+                {/* Top spacer */}
+                {offsetY > 0 && (
+                  <tr>
+                    <td
+                      colSpan={headers.length + 2}
+                      style={{ height: offsetY, padding: 0, border: "none" }}
+                    />
+                  </tr>
+                )}
+                {visibleRows.map(({ idx: actualIdx, row }) => (
+                  <tr
+                    key={actualIdx}
+                    className="csv-row"
+                    style={{
+                      height: ROW_HEIGHT,
+                      borderBottom: "1px solid var(--border)",
+                    }}
+                  >
+                    <td
+                      className="px-2 py-1.5 text-center text-xs"
+                      style={{ color: "var(--muted)" }}
                     >
+                      {actualIdx + 1}
+                    </td>
+                    {headers.map((_, ci) => (
                       <td
-                        className="px-2 py-1.5 text-center text-xs"
-                        style={{ color: "var(--muted)" }}
+                        key={ci}
+                        className="px-3 py-1.5 font-[family-name:var(--font-geist-mono)] text-xs"
+                        onDoubleClick={() => startEdit(actualIdx, ci)}
                       >
-                        {actualIdx + 1}
+                        {editCell?.row === actualIdx &&
+                        editCell?.col === ci ? (
+                          <input
+                            ref={editInputRef}
+                            type="text"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={commitEdit}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitEdit();
+                              if (e.key === "Escape") setEditCell(null);
+                            }}
+                            className="w-full px-1 py-0.5 rounded border text-xs focus:outline-none focus:ring-1"
+                            style={{
+                              background: "var(--background)",
+                              borderColor: "var(--primary)",
+                              color: "var(--foreground)",
+                            }}
+                          />
+                        ) : (
+                          <span className="block max-w-[300px] truncate">
+                            {row[ci] || ""}
+                          </span>
+                        )}
                       </td>
-                      {headers.map((_, ci) => (
-                        <td
-                          key={ci}
-                          className="px-3 py-1.5 font-[family-name:var(--font-geist-mono)] text-xs"
-                          onDoubleClick={() => startEdit(actualIdx, ci)}
-                        >
-                          {editCell?.row === actualIdx &&
-                          editCell?.col === ci ? (
-                            <input
-                              ref={editInputRef}
-                              type="text"
-                              value={editValue}
-                              onChange={(e) => setEditValue(e.target.value)}
-                              onBlur={commitEdit}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") commitEdit();
-                                if (e.key === "Escape") setEditCell(null);
-                              }}
-                              className="w-full px-1 py-0.5 rounded border text-xs focus:outline-none focus:ring-1"
-                              style={{
-                                background: "var(--background)",
-                                borderColor: "var(--primary)",
-                                color: "var(--foreground)",
-                              }}
-                            />
-                          ) : (
-                            <span className="block max-w-[300px] truncate">
-                              {row[ci] || ""}
-                            </span>
-                          )}
-                        </td>
-                      ))}
-                      <td className="px-2 py-1.5 text-center">
-                        <button
-                          onClick={() => deleteRow(actualIdx)}
-                          className="text-xs opacity-30 hover:opacity-100 hover:text-red-500 transition-opacity"
-                          title="Delete row"
-                        >
-                          ✕
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                    ))}
+                    <td className="px-2 py-1.5 text-center">
+                      <button
+                        onClick={() => deleteRow(actualIdx)}
+                        className="text-xs opacity-0 csv-row-action hover:text-red-500"
+                        title="Delete row"
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {/* Bottom spacer */}
+                {endRow < displayData.length && (
+                  <tr>
+                    <td
+                      colSpan={headers.length + 2}
+                      style={{
+                        height: (displayData.length - endRow) * ROW_HEIGHT,
+                        padding: 0,
+                        border: "none",
+                      }}
+                    />
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -617,67 +694,31 @@ export default function Home() {
             </h2>
             <div className="flex flex-wrap gap-2 items-center">
               <button
-                onClick={() =>
-                  download(
-                    toCSV(headers, data),
-                    "data.csv",
-                    "text/csv"
-                  )
-                }
+                onClick={() => download(toCSV(headers, data), "data.csv", "text/csv")}
                 className="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors hover:opacity-80"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "var(--foreground)",
-                }}
+                style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
               >
                 CSV
               </button>
               <button
-                onClick={() =>
-                  download(
-                    toTSV(headers, data),
-                    "data.tsv",
-                    "text/tab-separated-values"
-                  )
-                }
+                onClick={() => download(toTSV(headers, data), "data.tsv", "text/tab-separated-values")}
                 className="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors hover:opacity-80"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "var(--foreground)",
-                }}
+                style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
               >
                 TSV
               </button>
               <button
-                onClick={() =>
-                  download(
-                    toJSON(headers, data),
-                    "data.json",
-                    "application/json"
-                  )
-                }
+                onClick={() => download(toJSON(headers, data), "data.json", "application/json")}
                 className="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors hover:opacity-80"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "var(--foreground)",
-                }}
+                style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
               >
                 JSON
               </button>
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() =>
-                    download(
-                      toSQL(headers, data, tableName),
-                      "data.sql",
-                      "text/sql"
-                    )
-                  }
+                  onClick={() => download(toSQL(headers, data, tableName), "data.sql", "text/sql")}
                   className="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors hover:opacity-80"
-                  style={{
-                    borderColor: "var(--border)",
-                    color: "var(--foreground)",
-                  }}
+                  style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
                 >
                   SQL
                 </button>
@@ -695,48 +736,26 @@ export default function Home() {
                 />
               </div>
               <button
-                onClick={() =>
-                  download(
-                    toXML(headers, data),
-                    "data.xml",
-                    "application/xml"
-                  )
-                }
+                onClick={() => download(toXML(headers, data), "data.xml", "application/xml")}
                 className="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors hover:opacity-80"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "var(--foreground)",
-                }}
+                style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
               >
                 XML
               </button>
 
-              <div
-                className="h-6 w-px mx-1"
-                style={{ background: "var(--border)" }}
-              />
+              <div className="h-6 w-px mx-1" style={{ background: "var(--border)" }} />
 
               <button
-                onClick={() =>
-                  copyToClipboard(toJSON(headers, data))
-                }
+                onClick={() => copyToClipboard(toJSON(headers, data))}
                 className="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors hover:opacity-80"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "var(--muted)",
-                }}
+                style={{ borderColor: "var(--border)", color: "var(--muted)" }}
               >
                 Copy JSON
               </button>
               <button
-                onClick={() =>
-                  copyToClipboard(toCSV(headers, data))
-                }
+                onClick={() => copyToClipboard(toCSV(headers, data))}
                 className="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors hover:opacity-80"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "var(--muted)",
-                }}
+                style={{ borderColor: "var(--border)", color: "var(--muted)" }}
               >
                 Copy CSV
               </button>
@@ -765,7 +784,7 @@ export default function Home() {
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
           <div
-            className="px-4 py-2 rounded-lg border text-sm shadow-lg animate-pulse"
+            className="px-4 py-2 rounded-lg border text-sm shadow-lg"
             style={{
               background: "var(--surface)",
               borderColor: "var(--border)",
@@ -777,6 +796,15 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      <style jsx>{`
+        .csv-row:hover {
+          background: var(--surface);
+        }
+        .csv-row:hover .csv-row-action {
+          opacity: 1;
+        }
+      `}</style>
     </div>
   );
 }
