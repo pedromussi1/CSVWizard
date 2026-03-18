@@ -764,6 +764,44 @@ export default function Home() {
         )}
       </main>
 
+      {/* SEO Content Section */}
+      <section className="max-w-7xl w-full mx-auto px-6 pb-6">
+        <div
+          className="rounded-xl border p-6 text-sm leading-7"
+          style={{ background: "var(--surface)", borderColor: "var(--border)", color: "var(--muted)" }}
+        >
+          <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--foreground)" }}>
+            Free Online CSV Viewer, Editor &amp; Converter
+          </h2>
+          <p className="mb-3">
+            CSVWizard is a free online CSV viewer and editor that lets you open, view, sort, filter, and edit CSV and TSV files directly in your browser. Convert your spreadsheet data to JSON, SQL INSERT statements, XML, or tab-separated values. No software to install, no account required &mdash; all processing happens client-side.
+          </p>
+
+          <h3 className="text-base font-semibold mb-1" style={{ color: "var(--foreground)" }}>How to Use</h3>
+          <ul className="mb-3 pl-5 list-disc">
+            <li><strong>Upload or Paste</strong> &mdash; Drag and drop a CSV/TSV file, click Upload, or paste data directly into the text area.</li>
+            <li><strong>Auto-Detection</strong> &mdash; The delimiter is automatically detected (comma, tab, semicolon, or pipe).</li>
+            <li><strong>Sort Columns</strong> &mdash; Click any column header to sort ascending or descending. Numeric columns are sorted numerically.</li>
+            <li><strong>Filter Rows</strong> &mdash; Use the search box to instantly filter rows across all columns.</li>
+            <li><strong>Edit Cells</strong> &mdash; Double-click any cell to edit its value inline. Press Enter to save or Escape to cancel.</li>
+            <li><strong>Add &amp; Delete Rows</strong> &mdash; Use the toolbar buttons to add rows or click the &times; icon to remove one.</li>
+          </ul>
+
+          <h3 className="text-base font-semibold mb-1" style={{ color: "var(--foreground)" }}>Export Formats</h3>
+          <ul className="mb-3 pl-5 list-disc">
+            <li><strong>CSV</strong> &mdash; Standard comma-separated values with proper quoting.</li>
+            <li><strong>TSV</strong> &mdash; Tab-separated values, compatible with Excel and Google Sheets.</li>
+            <li><strong>JSON</strong> &mdash; Array of objects with column headers as keys.</li>
+            <li><strong>SQL</strong> &mdash; INSERT INTO statements with a configurable table name.</li>
+            <li><strong>XML</strong> &mdash; Structured XML with column names as element tags.</li>
+          </ul>
+
+          <p>
+            Handles large files with thousands of rows using virtualized rendering for smooth scrolling. Your data never leaves your browser &mdash; nothing is uploaded to any server. Works on desktop and mobile.
+          </p>
+        </div>
+      </section>
+
       {/* Footer */}
       <footer
         className="border-t text-center py-4 text-xs"
