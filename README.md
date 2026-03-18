@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CSVWizard
 
-## Getting Started
+A free, client-side CSV/TSV viewer, editor, and converter. Sort, filter, edit cells inline, and export to JSON, SQL, XML, and more.
 
-First, run the development server:
+**[Live Demo](https://csv-wizard-pedromussi1s-projects.vercel.app/)**
+
+## Features
+
+- **CSV/TSV Parser** — Auto-detects delimiter (comma, tab, semicolon, pipe)
+- **Multiple Input Methods** — File upload, drag-and-drop, or paste text
+- **Interactive Table** — Column sorting (auto-detects numeric vs text), global row filter, inline cell editing (double-click)
+- **Row Management** — Add and delete rows
+- **Export Formats** — CSV, TSV, JSON, SQL INSERT (configurable table name), XML
+- **Copy to Clipboard** — One-click copy as JSON or CSV
+- **Dark/Light Theme** — Persisted in localStorage
+- **Virtualized Rendering** — Handles large files (10K+ rows) smoothly by only rendering visible rows
+- **Client-Side Only** — No data sent to any server
+
+## Tech Stack
+
+- Next.js 16 + TypeScript + Tailwind CSS
+- Row virtualization for large datasets
+- Debounced filtering
+
+## Run Locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deploy
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Deploy on [Vercel](https://vercel.com/new) by importing the GitHub repo. No configuration needed.
 
-## Learn More
+## License
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
